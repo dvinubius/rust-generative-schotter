@@ -13,7 +13,7 @@ const LINE_WIDTH: f32 = 0.04;
 const DARK: bool = true;
 const CONTRAST: bool = false;
 const HUE_START: f32 = 0.35;
-const HUE_RANGE: f32 = 0.5; // overflows
+const HUE_RANGE: f32 = 0.25; // overflows
 
 fn main() {
     nannou::app(model)
@@ -34,6 +34,8 @@ struct Model {
     hue_range: f32,
     gravel: Vec<Stone>,
     shots: u32,
+    hue_velo_factor: f32,
+    hue_contraction_factor: f32,
 }
 
 struct Stone {
@@ -45,10 +47,6 @@ struct Stone {
     hue: f32,
     sat: f32,
     lum: f32,
-    x_velocity: f32,
-    y_velocity: f32,
-    rot_velocity: f32,
-    cycles: u32,
 }
 
 impl Stone {
@@ -59,10 +57,6 @@ impl Stone {
         let hue = 0.0;
         let sat = 0.0;
         let lum = 0.0;
-        let x_velocity = 0.0;
-        let y_velocity = 0.0;
-        let rot_velocity = 0.0;
-        let cycles = 0;
         Stone {
             x,
             y,
@@ -72,10 +66,6 @@ impl Stone {
             hue,
             sat,
             lum,
-            x_velocity,
-            y_velocity,
-            rot_velocity,
-            cycles,
         }
     }
 }
@@ -129,34 +119,30 @@ fn model(app: &App) -> Model {
         hue_range,
         gravel,
         shots: 0,
+        hue_velo_factor: 1.5,
+        hue_contraction_factor: 1.5,
     }
 }
 
-fn update(_app: &App, model: &mut Model, _update: Update) {
+fn update(app: &App, model: &mut Model, _update: Update) {
     update_ui(model);
     let mut rng = StdRng::seed_from_u64(model.random_seed);
     for stone in &mut model.gravel {
         let factor = stone.y / ROWS as f32;
-        if stone.cycles == 0 {
-            let disp_factor = factor * model.disp_adj;
-            let rot_factor = factor * model.rot_adj;
-            let new_x = disp_factor * rng.gen_range(-0.5..0.5);
-            let new_y = disp_factor * rng.gen_range(-0.5..0.5);
-            let new_rot = rot_factor * rng.gen_range(-PI / 4.0..PI / 4.0);
-            let new_cycles = rng.gen_range(50..300);
-            stone.x_velocity = (new_x - stone.x_offset) / new_cycles as f32;
-            stone.y_velocity = (new_y - stone.y_offset) / new_cycles as f32;
-            stone.rot_velocity = (new_rot - stone.rotation) / new_cycles as f32;
-            stone.cycles = new_cycles;
-        } else {
-            stone.x_offset += stone.x_velocity;
-            stone.y_offset += stone.y_velocity;
-            stone.rotation += stone.rot_velocity;
-            stone.cycles -= 1;
-        }
-
+        let disp_factor = factor * model.disp_adj;
+        let rot_factor = factor * model.rot_adj;
+        stone.x_offset = disp_factor * rng.gen_range(-0.5..0.5);
+        stone.y_offset = disp_factor * rng.gen_range(-0.5..0.5);
+        stone.rotation = rot_factor * rng.gen_range(-PI / 4.0..PI / 4.0);
         let hue_end = model.hue_start + model.hue_range;
-        let hue = map_range(factor, 0.0, 1.0, model.hue_start, hue_end);
+        let hue_target = (factor * model.hue_contraction_factor
+            + app.time / 5.0 * model.hue_velo_factor)
+            .fract();
+        let hue = if hue_target < 0.5 {
+            map_range(hue_target, 0.0, 0.5, model.hue_start, hue_end)
+        } else {
+            map_range(hue_target, 0.5, 1.0, hue_end, model.hue_start)
+        };
         stone.hue = if hue > 1.0 { hue - 1.0 } else { hue };
         let (sat, lum) = match (model.contrast_mode, model.dark_mode) {
             (true, true) => (0.8, 0.75),
@@ -216,22 +202,22 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
         }
         Key::Up => {
             if model.disp_adj < 5.0 {
-                model.disp_adj += 0.1;
+                model.disp_adj += 0.05;
             }
         }
         Key::Down => {
             if model.disp_adj > 0.0 {
-                model.disp_adj -= 0.1;
+                model.disp_adj -= 0.05;
             }
         }
         Key::Right => {
             if model.rot_adj < 5.0 {
-                model.rot_adj += 0.1;
+                model.rot_adj += 0.05;
             }
         }
         Key::Left => {
             if model.rot_adj > 0.0 {
-                model.rot_adj -= 0.1;
+                model.rot_adj -= 0.05;
             }
         }
         _other_key => {}
@@ -253,16 +239,12 @@ fn update_ui(model: &mut Model) {
         .show(&ctx, |ui| {
             ui.add(egui::Slider::new(&mut model.hue_start, 0.0..=1.0).text("Hue"));
             ui.add(egui::Slider::new(&mut model.hue_range, 0.0..=1.0).text("Hue Range"));
+            ui.add(
+                egui::Slider::new(&mut model.hue_contraction_factor, 0.1..=3.0)
+                    .text("Hue Business"),
+            );
+            ui.add(egui::Slider::new(&mut model.hue_velo_factor, 1.0..=6.0).text("Hue Heat"));
             ui.add(egui::Slider::new(&mut model.disp_adj, 0.0..=5.0).text("Displacement"));
             ui.add(egui::Slider::new(&mut model.rot_adj, 0.0..=5.0).text("Rotation"));
-            ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                ui.add_space(30.0);
-                if ui.add(egui::Button::new("Randomize")).clicked() {
-                    model.random_seed = random_range(0, 1000000);
-                }
-                ui.add(egui::DragValue::new(&mut model.random_seed));
-                ui.label("Seed");
-            });
         });
 }
