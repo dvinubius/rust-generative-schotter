@@ -1,5 +1,7 @@
 use nannou::prelude::*;
 use nannou_egui::{self, egui, Egui};
+use std::fs;
+use std::io::ErrorKind;
 
 const ROWS: u32 = 22;
 const COLS: u32 = 12;
@@ -34,6 +36,9 @@ struct Model {
     shots: u32,
     velo_factor: f32,
     motion: f32,
+    frames_dir: String,
+    cur_frame: u32,
+    recording: bool,
 }
 
 struct Stone {
@@ -120,6 +125,9 @@ fn model(app: &App) -> Model {
     }
 
     let motion = MOTION;
+    let frames_dir = app.exe_name().unwrap() + "_frames";
+    let recording = false;
+    let cur_frame = 0;
 
     Model {
         ui,
@@ -134,6 +142,9 @@ fn model(app: &App) -> Model {
         shots: 0,
         velo_factor: 1.0,
         motion,
+        frames_dir,
+        recording,
+        cur_frame,
     }
 }
 
@@ -196,6 +207,21 @@ fn update(app: &App, model: &mut Model, _update: Update) {
         };
         stone.sat = sat;
         stone.lum = lum;
+    }
+
+    if model.recording && app.elapsed_frames() % 2 == 0 {
+        model.cur_frame += 1;
+        if model.cur_frame > 9999 {
+            model.recording = false;
+        } else {
+            let filename = format!("{}/schotter{:>04}.png", model.frames_dir, model.cur_frame);
+            match app.window(model.main_window) {
+                Some(window) => {
+                    window.capture_frame(filename);
+                }
+                None => {}
+            }
+        }
     }
 }
 
@@ -270,6 +296,19 @@ fn key_pressed(app: &App, model: &mut Model, key: Key) {
                 stone.y_velocity = 0.0;
                 stone.rot_velocity = 0.0;
                 stone.cycles = random_range(50, 300);
+            }
+        }
+        Key::V => {
+            if model.recording {
+                model.recording = false;
+            } else {
+                fs::create_dir(&model.frames_dir).unwrap_or_else(|error| {
+                    if error.kind() != ErrorKind::AlreadyExists {
+                        panic! {"Problem creating directory {:?}", model.frames_dir};
+                    }
+                });
+                model.recording = true;
+                model.cur_frame = 0;
             }
         }
         _other_key => {}
