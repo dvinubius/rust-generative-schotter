@@ -49,6 +49,7 @@ struct Stone {
     y_velocity: f32,
     rot_velocity: f32,
     cycles: u32,
+    time_last_up: f32,
 }
 
 impl Stone {
@@ -63,6 +64,7 @@ impl Stone {
         let y_velocity = 0.0;
         let rot_velocity = 0.0;
         let cycles = 0;
+        let time_last_up = 0.0;
         Stone {
             x,
             y,
@@ -76,6 +78,7 @@ impl Stone {
             y_velocity,
             rot_velocity,
             cycles,
+            time_last_up,
         }
     }
 }
@@ -134,7 +137,7 @@ fn model(app: &App) -> Model {
     }
 }
 
-fn update(_app: &App, model: &mut Model, _update: Update) {
+fn update(app: &App, model: &mut Model, _update: Update) {
     update_ui(model);
     for stone in &mut model.gravel {
         let factor = stone.y / ROWS as f32;
@@ -154,7 +157,7 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 stone.x_velocity = 0.0;
                 stone.y_velocity = 0.0;
                 stone.rot_velocity = 0.0;
-                stone.cycles = random_range(50, 300);
+                stone.cycles = 0;
             } else {
                 let new_x = random_range(-0.5, 0.5);
                 let new_y = random_range(-0.5, 0.5);
@@ -168,11 +171,18 @@ fn update(_app: &App, model: &mut Model, _update: Update) {
                 stone.rot_velocity = nannou::math::clamp(rot_vel, -0.1, 0.1);
                 stone.cycles = new_cycles;
             }
+            stone.time_last_up = app.time;
         } else {
             stone.x_offset += stone.x_velocity;
             stone.y_offset += stone.y_velocity;
             stone.rotation += stone.rot_velocity;
-            stone.cycles -= 1;
+            let cycles_diff = ((app.time - stone.time_last_up) * 100.0) as u32;
+            stone.cycles = if stone.cycles > cycles_diff {
+                stone.cycles - cycles_diff
+            } else {
+                0
+            };
+            stone.time_last_up = app.time;
         }
 
         let hue_end = model.hue_start + model.hue_range;
